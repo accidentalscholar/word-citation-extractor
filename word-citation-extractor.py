@@ -1,7 +1,7 @@
 # ==========================================
 # Word Citation Extractor 
-# Version: 1.15.0
-# Citation: Pundir, V. (2026, May 28). Word Metadata Extractor Version (1.15.0). Retrieved from https://github.com/accidentalscholar/word-citation-extractor. 
+# Version: 1.17.0
+# Citation: Pundir, V. (2026, May 30). Word Metadata Extractor Version (1.17.0). Retrieved from https://github.com/accidentalscholar/word-citation-extractor. 
 # Citation: RIS and BibTeX files included for referencing software.
 # Tested in: Python 3.10.9 64 bit packaged by Anaconda, Inc.
 # Reporsitory: https://github.com/accidentalscholar/word-citation-extractor
@@ -13,6 +13,7 @@ import subprocess
 import os
 import re
 import urllib.parse
+import gc
 from datetime import datetime
 import xml.etree.ElementTree as ET
 
@@ -47,7 +48,7 @@ from tkinter import filedialog
 
 # --- 2. GLOBALS, CACHES & COMPILED REGEX ---
 SESSION = requests.Session()
-SESSION.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CitationBot/1.15'})
+SESSION.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CitationBot/1.17'})
 URL_CACHE = {}
 CROSSREF_CACHE = {}
 
@@ -194,7 +195,7 @@ def infer_source_type(reference_text):
     """Categorises the source type using an ordered hierarchy of logic with strict word boundaries."""
     text_lower = reference_text.lower()
     
-    # 1. Academic Journal (Now including SSRN, ScienceDirect, and arXiv)
+    # 1. Academic Journal (Including SSRN, ScienceDirect, and arXiv)
     academic_domains = ['sciencedirect.com', 'ssrn.com', 'arxiv.org']
     if re.search(r'\b(journal|doi\.org|vol\.?)\b', text_lower) or re.search(r'\b\d+\(\d+\)', text_lower) or any(d in text_lower for d in academic_domains):
         return "Academic Journal"
@@ -374,13 +375,47 @@ def generate_excel(folder_path):
     all_citations = []
     summary_data = []
     
+    # Establish live backup path
+    backup_csv_path = os.path.join(folder_path, "live_backup_citations.csv")
+    if os.path.exists(backup_csv_path):
+        os.remove(backup_csv_path) # Clear old backup from a previous run
+        
+    # Column headers for backup to ensure consistent DataFrame structure
+    headers_file = ["Column A", "Column B", "Column C", "Column D", "Column E", 
+                    "Column F", "Column G", "Column H", "Column I", "Column J", 
+                    "Column K", "Column L", "Column M"]
+    
     for f in docx_files:
         safe_print(f"Processing {os.path.basename(f)}...")
-        cit_data, stats = process_docx(f)
-        all_citations.extend(cit_data)
-        summary_data.append(stats)
         
-    output_path = os.path.join(folder_path, f"Citation_Analysis_v1.15.0_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
+        try:
+            cit_data, stats = process_docx(f)
+            
+            all_citations.extend(cit_data)
+            summary_data.append(stats)
+            
+            # --- Auto-Save to Disk for Disaster Recovery ---
+            df_file_backup = pd.DataFrame(cit_data)
+            if df_file_backup.empty:
+                df_file_backup = pd.DataFrame(columns=headers_file)
+            
+            # Append to running CSV file
+            df_file_backup.to_csv(backup_csv_path, mode='a', index=False, header=not os.path.exists(backup_csv_path))
+            
+        except Exception as e:
+            safe_print(f"  [ERROR] Failed to process {os.path.basename(f)}. Corrupt file or unreadable formatting. Skipping. Error: {str(e)}")
+            
+        finally:
+            # --- Aggressive Memory Management ---
+            # Forces Python to dump the massive Word XML trees from RAM instantly
+            gc.collect() 
+            
+    if not summary_data:
+        safe_print("\nNo documents were successfully processed. Exiting.")
+        return
+        
+    safe_print("\nAll files processed successfully. Compiling final Excel report...")
+    output_path = os.path.join(folder_path, f"Citation_Analysis_v1.17.0_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
     writer = pd.ExcelWriter(output_path, engine='xlsxwriter')
     workbook = writer.book
     
@@ -404,7 +439,7 @@ def generate_excel(folder_path):
         s_ref = f"'{sheet_name}'!"
         max_row = max(2, stats['Data_Rows'] + 1)
         
-        # Bounded Ranges updated for the new column layout
+        # Bounded Ranges
         rng_B = f"{s_ref}B2:B{max_row}" # In-text
         rng_D = f"{s_ref}D2:D{max_row}" # Full ref
         rng_H = f"{s_ref}H2:H{max_row}" # URL
@@ -431,10 +466,17 @@ def generate_excel(folder_path):
     worksheet_summary.add_table(0, 0, len(summary_data) if summary_data else 1, len(headers_summary)-1, 
                                 {'columns': [{'header': h} for h in headers_summary], 'style': 'Table Style Medium 9'})
 
-    # 2. Individual File Sheets & Excel Native Charts
+    # 2. Individual File Sheets & Dynamic Excel Native Charts
     df_all = pd.DataFrame(all_citations)
-    headers_file = ["Filename", "In text citation", "Estimated page in-text", "Matched full reference", "Estimated page reference", 
+    
+    # Redefined headers to perfectly match logic
+    excel_headers = ["Filename", "In text citation", "Estimated page in-text", "Matched full reference", "Estimated page reference", 
                     "Inferred style", "Source type", "Source URL", "Date accessed", "Direct link?", "200 OK?", "404 Page?", "Real Source (API)?"]
+
+    possible_categories = [
+        "Academic Journal", "Report", "Government Document", 
+        "Social Media", "Book", "Website", "Other/Unknown"
+    ]
 
     for f in docx_files:
         fname = os.path.basename(f)
@@ -443,55 +485,61 @@ def generate_excel(folder_path):
         if not df_all.empty:
             df_file = df_all[df_all['Column A'] == fname]
         else:
-            df_file = pd.DataFrame(columns=df_all.columns if not df_all.empty else headers_file)
+            df_file = pd.DataFrame(columns=df_all.columns if not df_all.empty else excel_headers)
             
         df_file.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=1)
         worksheet = writer.sheets[sheet_name]
         
         num_rows = len(df_file) if len(df_file) > 0 else 1
-        worksheet.add_table(0, 0, num_rows, len(headers_file)-1, 
-                            {'columns': [{'header': h} for h in headers_file], 'style': 'Table Style Medium 2'})
+        worksheet.add_table(0, 0, num_rows, len(excel_headers)-1, 
+                            {'columns': [{'header': h} for h in excel_headers], 'style': 'Table Style Medium 2'})
                             
-        # Conditional formatting logic indices applied
+        # Conditional formatting
         worksheet.conditional_format(1, 9, num_rows, 9, {'type': 'cell', 'criteria': '!=', 'value': '"direct link"', 'format': format_orange})
         worksheet.conditional_format(1, 10, num_rows, 10, {'type': 'cell', 'criteria': '==', 'value': '"no"', 'format': format_orange})
         worksheet.conditional_format(1, 11, num_rows, 11, {'type': 'cell', 'criteria': '==', 'value': '"yes"', 'format': format_orange})
         worksheet.conditional_format(1, 12, num_rows, 12, {'type': 'cell', 'criteria': '==', 'value': '"no"', 'format': format_orange})
 
-        # Generate Native Excel Chart
-        source_types = df_file['Column G'].tolist() if 'Column G' in df_file else []
-        if source_types:
-            counts = pd.Series(source_types).value_counts()
-            if not counts.empty:
-                summary_start_row = 1
-                cat_col = 14 # Column O
-                val_col = 15 # Column P
-                
-                worksheet.write_string(0, cat_col, "Source Type", format_bold)
-                worksheet.write_string(0, val_col, "Count", format_bold)
-                
-                for row_offset, (cat, count) in enumerate(counts.items()):
-                    worksheet.write_string(summary_start_row + row_offset, cat_col, str(cat))
-                    worksheet.write_number(summary_start_row + row_offset, val_col, count)
-                    
-                chart = workbook.add_chart({'type': 'column'})
-                
-                chart.add_series({
-                    'name': 'Source Types',
-                    'categories': [sheet_name, summary_start_row, cat_col, summary_start_row + len(counts) - 1, cat_col],
-                    'values':     [sheet_name, summary_start_row, val_col, summary_start_row + len(counts) - 1, val_col],
-                    'fill':       {'color': '#87CEEB'},
-                    'border':     {'color': '#5F9EA0'}
-                })
-                
-                chart.set_title({'name': f'Source Types Distribution'})
-                chart.set_x_axis({'name': 'Source Type'})
-                chart.set_y_axis({'name': 'Frequency', 'major_gridlines': {'visible': True}})
-                chart.set_legend({'none': True})
-                
-                worksheet.insert_chart('R2', chart)
+        # Generate Native Excel Chart with dynamic COUNTIF formulas
+        summary_start_row = 1
+        cat_col = 14 # Column O
+        val_col = 15 # Column P
+        max_row_file = max(2, num_rows + 1)
+        
+        worksheet.write_string(0, cat_col, "Source Type", format_bold)
+        worksheet.write_string(0, val_col, "Count", format_bold)
+        
+        for row_offset, cat in enumerate(possible_categories):
+            worksheet.write_string(summary_start_row + row_offset, cat_col, cat)
+            formula = f'=COUNTIF(G$2:G${max_row_file}, "{cat}")'
+            worksheet.write_formula(summary_start_row + row_offset, val_col, formula)
+            
+        chart = workbook.add_chart({'type': 'column'})
+        
+        chart.add_series({
+            'name': 'Source Types',
+            'categories': [sheet_name, summary_start_row, cat_col, summary_start_row + len(possible_categories) - 1, cat_col],
+            'values':     [sheet_name, summary_start_row, val_col, summary_start_row + len(possible_categories) - 1, val_col],
+            'fill':       {'color': '#87CEEB'},
+            'border':     {'color': '#5F9EA0'}
+        })
+        
+        chart.set_title({'name': f'Source Types Distribution'})
+        chart.set_x_axis({'name': 'Source Type'})
+        chart.set_y_axis({'name': 'Frequency', 'major_gridlines': {'visible': True}})
+        chart.set_legend({'none': True})
+        
+        worksheet.insert_chart('R2', chart)
 
     writer.close()
+    
+    # Optionally clean up the CSV backup if Excel generated successfully
+    try:
+        if os.path.exists(backup_csv_path):
+            os.remove(backup_csv_path)
+    except Exception:
+        pass
+
     safe_print(f"\nDone! Excel file saved as:\n{output_path}")
 
 # --- 6. EXECUTION ---
