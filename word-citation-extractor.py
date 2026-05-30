@@ -1,7 +1,7 @@
 # ==========================================
 # Word Citation Extractor 
-# Version: 1.17.0
-# Citation: Pundir, V. (2026, May 30). Word Metadata Extractor Version (1.17.0). Retrieved from https://github.com/accidentalscholar/word-citation-extractor. 
+# Version: 1.18.0
+# Citation: Pundir, V. (2026, May 30). Word Metadata Extractor Version (1.18.0). Retrieved from https://github.com/accidentalscholar/word-citation-extractor. 
 # Citation: RIS and BibTeX files included for referencing software.
 # Tested in: Python 3.10.9 64 bit packaged by Anaconda, Inc.
 # Reporsitory: https://github.com/accidentalscholar/word-citation-extractor
@@ -48,7 +48,7 @@ from tkinter import filedialog
 
 # --- 2. GLOBALS, CACHES & COMPILED REGEX ---
 SESSION = requests.Session()
-SESSION.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CitationBot/1.17'})
+SESSION.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CitationBot/1.18'})
 URL_CACHE = {}
 CROSSREF_CACHE = {}
 
@@ -378,12 +378,11 @@ def generate_excel(folder_path):
     # Establish live backup path
     backup_csv_path = os.path.join(folder_path, "live_backup_citations.csv")
     if os.path.exists(backup_csv_path):
-        os.remove(backup_csv_path) # Clear old backup from a previous run
+        os.remove(backup_csv_path) 
         
-    # Column headers for backup to ensure consistent DataFrame structure
-    headers_file = ["Column A", "Column B", "Column C", "Column D", "Column E", 
-                    "Column F", "Column G", "Column H", "Column I", "Column J", 
-                    "Column K", "Column L", "Column M"]
+    headers_file_backup = ["Column A", "Column B", "Column C", "Column D", "Column E", 
+                           "Column F", "Column G", "Column H", "Column I", "Column J", 
+                           "Column K", "Column L", "Column M"]
     
     for f in docx_files:
         safe_print(f"Processing {os.path.basename(f)}...")
@@ -394,20 +393,18 @@ def generate_excel(folder_path):
             all_citations.extend(cit_data)
             summary_data.append(stats)
             
-            # --- Auto-Save to Disk for Disaster Recovery ---
+            # Auto-Save to Disk for Disaster Recovery
             df_file_backup = pd.DataFrame(cit_data)
             if df_file_backup.empty:
-                df_file_backup = pd.DataFrame(columns=headers_file)
+                df_file_backup = pd.DataFrame(columns=headers_file_backup)
             
-            # Append to running CSV file
             df_file_backup.to_csv(backup_csv_path, mode='a', index=False, header=not os.path.exists(backup_csv_path))
             
         except Exception as e:
             safe_print(f"  [ERROR] Failed to process {os.path.basename(f)}. Corrupt file or unreadable formatting. Skipping. Error: {str(e)}")
             
         finally:
-            # --- Aggressive Memory Management ---
-            # Forces Python to dump the massive Word XML trees from RAM instantly
+            # Aggressive Memory Management
             gc.collect() 
             
     if not summary_data:
@@ -415,7 +412,7 @@ def generate_excel(folder_path):
         return
         
     safe_print("\nAll files processed successfully. Compiling final Excel report...")
-    output_path = os.path.join(folder_path, f"Citation_Analysis_v1.17.0_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
+    output_path = os.path.join(folder_path, f"Citation_Analysis_v1.18.0_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
     writer = pd.ExcelWriter(output_path, engine='xlsxwriter')
     workbook = writer.book
     
@@ -439,7 +436,7 @@ def generate_excel(folder_path):
         s_ref = f"'{sheet_name}'!"
         max_row = max(2, stats['Data_Rows'] + 1)
         
-        # Bounded Ranges
+        # Bounded Ranges updated for the new column layout
         rng_B = f"{s_ref}B2:B{max_row}" # In-text
         rng_D = f"{s_ref}D2:D{max_row}" # Full ref
         rng_H = f"{s_ref}H2:H{max_row}" # URL
@@ -469,7 +466,6 @@ def generate_excel(folder_path):
     # 2. Individual File Sheets & Dynamic Excel Native Charts
     df_all = pd.DataFrame(all_citations)
     
-    # Redefined headers to perfectly match logic
     excel_headers = ["Filename", "In text citation", "Estimated page in-text", "Matched full reference", "Estimated page reference", 
                     "Inferred style", "Source type", "Source URL", "Date accessed", "Direct link?", "200 OK?", "404 Page?", "Real Source (API)?"]
 
@@ -491,10 +487,20 @@ def generate_excel(folder_path):
         worksheet = writer.sheets[sheet_name]
         
         num_rows = len(df_file) if len(df_file) > 0 else 1
+        max_row_file = max(2, num_rows + 1)
+        
         worksheet.add_table(0, 0, num_rows, len(excel_headers)-1, 
                             {'columns': [{'header': h} for h in excel_headers], 'style': 'Table Style Medium 2'})
                             
-        # Conditional formatting
+        # --- DATA VALIDATION FOR SOURCE TYPES ---
+        worksheet.data_validation(f'G2:G{max_row_file}', {
+            'validate': 'list',
+            'source': possible_categories,
+            'input_title': 'Select Source Type',
+            'input_message': 'Choose the correct category from the list to update the chart.'
+        })
+
+        # Conditional formatting logic indices applied
         worksheet.conditional_format(1, 9, num_rows, 9, {'type': 'cell', 'criteria': '!=', 'value': '"direct link"', 'format': format_orange})
         worksheet.conditional_format(1, 10, num_rows, 10, {'type': 'cell', 'criteria': '==', 'value': '"no"', 'format': format_orange})
         worksheet.conditional_format(1, 11, num_rows, 11, {'type': 'cell', 'criteria': '==', 'value': '"yes"', 'format': format_orange})
@@ -504,7 +510,6 @@ def generate_excel(folder_path):
         summary_start_row = 1
         cat_col = 14 # Column O
         val_col = 15 # Column P
-        max_row_file = max(2, num_rows + 1)
         
         worksheet.write_string(0, cat_col, "Source Type", format_bold)
         worksheet.write_string(0, val_col, "Count", format_bold)
