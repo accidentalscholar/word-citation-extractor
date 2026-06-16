@@ -1,5 +1,5 @@
 # Word Citation Extractor
-This simple script attempts to extract well-structured citations from _Word DOCX_ files in a folder and provides the output as tables in an _Excel_ files. It also attempts to do basic sanity tests on the extracted citations.
+This simple script attempts to extract well-structured citations from _Word DOCX_ files in a folder and provides the output as tables in an _Excel_ file. It also attempts to do basic sanity tests on the extracted citations.
 
 ## The Problem
 Verifying individual citations / references in a document manually is quite onerous. While it may not be a [wicked problem](https://en.wikipedia.org/wiki/Wicked_problem), automating this in a robust way is quite challenging. One issue is that there are numerous referencing styles in use, and any _generalised_ tool that attempts to boil the ocean without targeted knowledge of which referencing style has been used in the presented documents, is likely to suffer on accuracy. Tools targeting specific referencing styles have the potential to be more accurate.
