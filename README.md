@@ -23,7 +23,7 @@ Once you have done that, it will extract the citations from all *Word DOCX* file
 ### Output
 The script will save the output as an *Excel* file in the same folder as your *Word DOCX* files.
 
-The Excel workbook will have a sheet per *Word DOCX* file and a summary sheet providing an overview for the folder.
+The *Excel* workbook will have a sheet per *Word DOCX* file and a summary sheet providing an overview for the folder.
 
 Each row in the summary table represents a *Word DOCX* file, and the columns are as following:
 1. *Filename*
